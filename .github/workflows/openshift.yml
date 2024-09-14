@@ -1,0 +1,106 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# 💁 The OpenShift Starter workflow will:
+# - Checkout your repository
+# - Perform a container image build
+# - Push the built image to the GitHub Container Registry (GHCR)
+# - Log in to your OpenShift cluster
+# - Create an OpenShift app from the image and expose it to the internet
+
+# ℹ️ Configure your repository and the workflow with the following steps:
+# 1. Have access to an OpenShift cluster. Refer to https://www.openshift.com/try
+# 2. Create the OPENSHIFT_SERVER and OPENSHIFT_TOKEN repository secrets. Refer to:
+#   - https://github.com/redhat-actions/oc-login#readme
+#   - https://docs.github.com/en/actions/reference/encrypted-secrets
+#   - https://cli.github.com/manual/gh_secret_set
+# 3. (Optional) Edit the top-level 'env' section as marked with '🖊️' if the defaults are not suitable for your project.
+# 4. (Optional) Edit the build-image step to build your project.
+#    The default build type is by using a Dockerfile at the root of the repository,
+#    but can be replaced with a different file, a source-to-image build, or a step-by-step buildah build.
+# 5. Commit and push the workflow file to your default branch to trigger a workflow run.
+
+# 👋 Visit our GitHub organization at https://github.com/redhat-actions/ to see our actions and provide feedback.
+
+name: OpenShift
+
+env:
+  # 🖊️ EDIT your repository secrets to log into your OpenShift cluster and set up the context.
+  # See https://github.com/redhat-actions/oc-login#readme for how to retrieve these values.
+  # To get a permanent token, refer to https://github.com/redhat-actions/oc-login/wiki/Using-a-Service-Account-for-GitHub-Actions
+  OPENSHIFT_SERVER: ${{ secrets.OPENSHIFT_SERVER }}  # e.g., https://api.sandbox-m2.ll9k.p1.openshiftapps.com:6443
+  OPENSHIFT_TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}    # e.g., sha256~bTakBVFiFAg5_XEFMBBpWnf7LiBLb_JIBnTbUgJ5ZaQ
+
+  # 🖊️ EDIT to set the kube context's namespace after login. Leave blank to use your user's default namespace.
+  OPENSHIFT_NAMESPACE: ""  # Optional, specify if you need a different namespace
+
+  # 🖊️ EDIT to set a name for your OpenShift app, or a default one will be generated below.
+  APP_NAME: arumporul
+
+  # 🖊️ EDIT with the port your application should be accessible on.
+  # If the container image exposes *exactly one* port, this can be left blank.
+  # Refer to the 'port' input of https://github.com/redhat-actions/oc-new-app
+  APP_PORT: ""  # Optional, specify if needed
+
+  # 🖊️ EDIT to change the image registry settings.
+  # Registries such as GHCR, Quay.io, and Docker Hub are supported.
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGE_REGISTRY_USER: ${{ github.actor }}
+  IMAGE_REGISTRY_PASSWORD: ${{ github.token }}
+
+  # 🖊️ EDIT to specify custom tags for the container image, or default tags will be generated below.
+  IMAGE_TAGS: ""  # Optional, specify if needed
+
+on:
+  # https://docs.github.com/en/actions/reference/events-that-trigger-workflows
+  workflow_dispatch:
+  push:
+    # Edit to the branch(es) you want to build and deploy on each push.
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Build and push Docker image
+      run: |
+        docker build -t ${{ env.IMAGE_REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }} .
+        docker push ${{ env.IMAGE_REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }}
+
+    - name: Log in to OpenShift
+      uses: redhat-actions/oc-login@v1
+      with:
+        server: ${{ env.OPENSHIFT_SERVER }}
+        token: ${{ env.OPENSHIFT_TOKEN }}
+        namespace: ${{ env.OPENSHIFT_NAMESPACE }}
+
+    - name: Deploy to OpenShift
+      uses: redhat-actions/oc-new-app@v1
+      with:
+        name: ${{ env.APP_NAME }}
+        image: ${{ env.IMAGE_REGISTRY }}/${{ env.APP_NAME }}:${{ github.sha }}
+        port: ${{ env.APP_PORT }}
+        registry: ${{ env.IMAGE_REGISTRY }}
+        username: ${{ env.IMAGE_REGISTRY_USER }}
+        password: ${{ env.IMAGE_REGISTRY_PASSWORD }}
+
+    - name: Expose OpenShift app
+      uses: redhat-actions/oc-expose@v1
+      with:
+        service: ${{ env.APP_NAME }}
